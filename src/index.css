@@ -1,0 +1,225 @@
+:root {
+  --primary: #5B7E3C; /* Forest Green */
+  --primary-dark: #4a6631;
+  --secondary: #FFD65A; /* Mustard Yellow */
+  --tertiary: #FF9D23; /* Orange */
+  --accent: #EA5252; /* Red */
+  
+  --background: #ffffff;
+  --foreground: #1e293b;
+  --surface: rgba(255, 255, 255, 0.9);
+  --border: rgba(91, 126, 60, 0.1);
+  --gradient-main: linear-gradient(135deg, #fdfcfb 0%, #f7f9f2 100%);
+  --shadow: 0 10px 15px -3px rgba(91, 126, 60, 0.1);
+
+  --font-family: 'Outfit', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body {
+  font-family: var(--font-family);
+  background: var(--gradient-main);
+  background-attachment: fixed;
+  color: var(--foreground);
+  overflow-x: hidden;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4 {
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  border-radius: 12px;
+}
+
+.glass {
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white;
+  padding: 0.8rem 2rem;
+  font-weight: 600;
+  box-shadow: 0 10px 15px -3px rgba(91, 126, 60, 0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, var(--tertiary), #e68a1f);
+  box-shadow: 0 20px 25px -5px rgba(255, 157, 35, 0.4);
+}
+
+.btn-booking {
+  background: linear-gradient(135deg, var(--secondary), #f5c542);
+  color: #4a6631;
+  padding: 0.8rem 1.5rem;
+  font-weight: 700;
+}
+
+.btn-signin {
+  background: linear-gradient(135deg, var(--accent), #d44343);
+  color: white;
+  padding: 0.6rem 1.2rem;
+  font-weight: 700;
+  box-shadow: 0 4px 6px -1px rgba(234, 82, 82, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+}
+
+.btn-signin:hover {
+  transform: scale(1.05);
+  box-shadow: 0 10px 15px -3px rgba(234, 82, 82, 0.4);
+}
+
+.btn-cancel:hover {
+  background: #EA5252 !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(234, 82, 82, 0.3);
+}
+
+.btn-signin:hover {
+  transform: scale(1.05);
+  box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3);
+}
+
+/* Background elements */
+.shape {
+  position: absolute;
+  z-index: 0;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+h1, h2, h3, h4 {
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass {
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white;
+  padding: 0.8rem 2rem;
+  font-weight: 600;
+  box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 25px -5px rgba(16, 185, 129, 0.4);
+}
+
+.btn-booking {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: white;
+  padding: 0.8rem 1.5rem;
+  font-weight: 600;
+}
+
+.container {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: 0 1rem;
+  }
+}
+
+section {
+  padding: 8rem 0;
+  min-height: 80vh;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+@media (max-width: 1024px) {
+  nav .container {
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  
+  .hero-content {
+    text-align: center !important;
+  }
+  
+  .hero-graphics {
+    display: none;
+  }
+}
+
+.theme-toggle {
+  width: 50px;
+  height: 26px;
+  background: #cbd5e1;
+  border-radius: 100px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.theme-toggle-knob {
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  transition: transform 0.3s ease;
+}
+
+[data-theme='dark'] .theme-toggle-knob {
+  transform: translateX(22px);
+}
+
+[data-theme='dark'] .theme-toggle {
+  background: var(--primary);
+}
+
+/* Animations */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+  100% { transform: translateY(0px); }
+}
+
+.floating {
+  animation: float 6s ease-in-out infinite;
+}
