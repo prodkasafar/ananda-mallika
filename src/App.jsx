@@ -2,9 +2,25 @@ import React, { useState, Suspense, useRef, useEffect } from 'react'
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { PerspectiveCamera, Float, ContactShadows, Environment, OrbitControls } from '@react-three/drei'
-import { Calendar, Users, MapPin, Star, ChevronRight, Home, Menu, X, CheckCircle2, Sun, Moon, LogIn, User, LogOut, Trash2, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { Calendar, Users, MapPin, Star, ChevronRight, ChevronLeft, Home, Menu, X, CheckCircle2, Sun, Moon, LogIn, User, LogOut, Trash2, ShieldCheck, ShieldAlert, Plus, Pencil, Phone } from 'lucide-react'
 
-// --- 3D Components ---
+// --- Helpers ---
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  const parts = dateStr.split('-')
+  if (parts.length !== 3) return dateStr
+  return `${parts[2]}/${parts[1]}/${parts[0]}`
+}
+
+const getPropertyTypes = () => {
+  const stored = localStorage.getItem('property_types')
+  if (stored) return JSON.parse(stored)
+  const defaults = ['Forest Cabin', 'Amber Villa', 'Crimson Lodge']
+  localStorage.setItem('property_types', JSON.stringify(defaults))
+  return defaults
+}
+
+
 
 function MiniatureHouse({ scrollRotation }) {
   const mesh = useRef()
@@ -39,42 +55,35 @@ function Scene({ scrollRotation }) {
 const AdminDashboard = ({ onBack, currentUser }) => {
   const [allBookings, setAllBookings] = useState([])
   const [allUsers, setAllUsers] = useState([])
-  const [activeTab, setActiveTab] = useState('overview') // 'overview', 'bookings', 'users'
+  const [activeTab, setActiveTab] = useState('overview')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [propertyTypes, setPropertyTypes] = useState([])
+  const [newPropertyName, setNewPropertyName] = useState('')
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [editingName, setEditingName] = useState('')
+  const [notification, setNotification] = useState(null)
+  const [confirmDeleteEmail, setConfirmDeleteEmail] = useState(null)
 
   const loadData = () => {
     setAllBookings(JSON.parse(localStorage.getItem('bookings') || '[]'))
     setAllUsers(JSON.parse(localStorage.getItem('user_accounts') || '[]'))
+    setPropertyTypes(getPropertyTypes())
   }
 
   useEffect(() => { loadData() }, [])
-
-  const [notification, setNotification] = useState(null)
-  const [confirmDeleteEmail, setConfirmDeleteEmail] = useState(null)
-
-  useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [notification])
+  useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 3000); return () => clearTimeout(t) } }, [notification])
 
   const handleToggleRole = (email) => {
-    const updatedUsers = allUsers.map(u => {
-      if (u.email === email) {
-        const newRole = u.role === 'Administrator' ? 'Guest' : 'Administrator'
-        setNotification(`Role for ${email} updated to ${newRole}`)
-        return { ...u, role: newRole }
-      }
-      return u
-    })
-    localStorage.setItem('user_accounts', JSON.stringify(updatedUsers))
-    setAllUsers(updatedUsers)
+    const updated = allUsers.map(u => u.email === email ? { ...u, role: (u.role === 'Administrator' ? 'Guest' : 'Administrator') } : u)
+    if (updated.find(u => u.email === email)) setNotification(`Role for ${email} updated`)
+    localStorage.setItem('user_accounts', JSON.stringify(updated))
+    setAllUsers(updated)
   }
 
   const handleAdminCancel = (bookingId) => {
-    const updatedBookings = allBookings.filter(b => b.id !== bookingId)
-    localStorage.setItem('bookings', JSON.stringify(updatedBookings))
-    setAllBookings(updatedBookings)
+    const updated = allBookings.filter(b => b.id !== bookingId)
+    localStorage.setItem('bookings', JSON.stringify(updated))
+    setAllBookings(updated)
     setNotification('Booking cancelled successfully')
   }
 
@@ -82,72 +91,100 @@ const AdminDashboard = ({ onBack, currentUser }) => {
     const updatedUsers = allUsers.filter(u => u.email !== email)
     localStorage.setItem('user_accounts', JSON.stringify(updatedUsers))
     setAllUsers(updatedUsers)
-    
-    const currentBookings = JSON.parse(localStorage.getItem('bookings') || '[]')
-    const updatedBookings = currentBookings.filter(b => b.userEmail !== email)
+    const updatedBookings = JSON.parse(localStorage.getItem('bookings') || '[]').filter(b => b.userEmail !== email)
     localStorage.setItem('bookings', JSON.stringify(updatedBookings))
     setAllBookings(updatedBookings)
     setConfirmDeleteEmail(null)
-    setNotification(`User ${email} deleted successfully`)
+    setNotification(`User ${email} deleted`)
+  }
+
+  // Property management
+  const handleAddProperty = () => {
+    if (!newPropertyName.trim()) return
+    const updated = [...propertyTypes, newPropertyName.trim()]
+    localStorage.setItem('property_types', JSON.stringify(updated))
+    setPropertyTypes(updated)
+    setNotification(`Property "${newPropertyName.trim()}" added`)
+    setNewPropertyName('')
+  }
+
+  const handleSaveProperty = (index) => {
+    if (!editingName.trim()) return
+    const oldName = propertyTypes[index]
+    const updated = [...propertyTypes]
+    updated[index] = editingName.trim()
+    localStorage.setItem('property_types', JSON.stringify(updated))
+    setPropertyTypes(updated)
+    const bookings = JSON.parse(localStorage.getItem('bookings') || '[]').map(b => b.property === oldName ? { ...b, property: editingName.trim() } : b)
+    localStorage.setItem('bookings', JSON.stringify(bookings))
+    setAllBookings(bookings)
+    setEditingIndex(null)
+    setNotification(`Property renamed to "${editingName.trim()}"`)
+  }
+
+  const handleDeleteProperty = (index) => {
+    const name = propertyTypes[index]
+    const updated = propertyTypes.filter((_, i) => i !== index)
+    localStorage.setItem('property_types', JSON.stringify(updated))
+    setPropertyTypes(updated)
+    setNotification(`Property "${name}" deleted`)
   }
 
   const tableStyle = { width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', marginBottom: '2.5rem' }
-  const thStyle = { textAlign: 'left', padding: '1.2rem', background: '#f1f5f9', borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }
-  const tdStyle = { padding: '1.2rem', borderBottom: '1px solid #f1f5f9', fontSize: '0.9rem' }
+  const thStyle = { textAlign: 'left', padding: '1rem', background: '#f1f5f9', borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, whiteSpace: 'nowrap' }
+  const tdStyle = { padding: '1rem', borderBottom: '1px solid #f1f5f9', fontSize: '0.85rem', whiteSpace: 'nowrap' }
+  const sidebarWidth = sidebarCollapsed ? '80px' : '280px'
+  const inputStyle = { padding: '0.8rem 1rem', borderRadius: '10px', border: '2px solid #e2e8f0', fontSize: '0.9rem', width: '100%' }
 
   const navItemStyle = (tab) => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem',
-    padding: '1rem 1.5rem',
-    borderRadius: '12px',
-    cursor: 'pointer',
-    fontWeight: 700,
-    fontSize: '0.95rem',
-    transition: 'all 0.2s ease',
+    display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? '0' : '1rem',
+    padding: sidebarCollapsed ? '1rem' : '1rem 1.5rem', borderRadius: '12px', cursor: 'pointer',
+    fontWeight: 700, fontSize: '0.95rem', transition: 'all 0.25s ease',
     background: activeTab === tab ? '#5B7E3C' : 'transparent',
     color: activeTab === tab ? 'white' : '#64748b',
-    border: 'none',
-    width: '100%',
-    textAlign: 'left'
+    border: 'none', width: '100%', textAlign: 'left',
+    justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+    overflow: 'hidden', whiteSpace: 'nowrap'
   })
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc', fontFamily: 'inherit' }}>
       {/* Sidebar */}
-      <aside style={{ width: '280px', background: 'white', borderRight: '1px solid #e2e8f0', padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem', position: 'fixed', height: '100vh' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '1rem' }}>
-          <div style={{ background: '#5B7E3C', padding: '0.5rem', borderRadius: '12px', display: 'flex' }}><ShieldCheck color="white" size={24} /></div>
-          <span style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.5px', color: '#1e293b' }}>Admin Central</span>
+      <aside style={{ width: sidebarWidth, background: 'white', borderRight: '1px solid #e2e8f0', padding: sidebarCollapsed ? '2rem 0.8rem' : '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem', position: 'fixed', height: '100vh', transition: 'all 0.25s ease', overflow: 'hidden', zIndex: 10 }}>
+        <div style={{ display: 'flex', flexDirection: sidebarCollapsed ? 'column' : 'row', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: '0.8rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', overflow: 'hidden' }}>
+            <div style={{ background: '#5B7E3C', padding: '0.5rem', borderRadius: '12px', display: 'flex', flexShrink: 0 }}><ShieldCheck color="white" size={24} /></div>
+            {!sidebarCollapsed && <span style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.5px', color: '#1e293b', whiteSpace: 'nowrap' }}>Admin Central</span>}
+          </div>
+          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? 'Expand' : 'Collapse'} style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, color: '#64748b' }}>
+            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </button>
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
-          <button onClick={() => setActiveTab('overview')} style={navItemStyle('overview')}>
-            <Home size={20} /> Overview
+          <button onClick={() => setActiveTab('overview')} style={navItemStyle('overview')} title="Overview">
+            <Home size={20} style={{ flexShrink: 0 }} /> {!sidebarCollapsed && 'Overview'}
           </button>
-          <button onClick={() => setActiveTab('bookings')} style={navItemStyle('bookings')}>
-            <Calendar size={20} /> Bookings
+          <button onClick={() => setActiveTab('bookings')} style={navItemStyle('bookings')} title="Bookings">
+            <Calendar size={20} style={{ flexShrink: 0 }} /> {!sidebarCollapsed && 'Bookings'}
           </button>
-          <button onClick={() => setActiveTab('users')} style={navItemStyle('users')}>
-            <Users size={20} /> User Roles
+          <button onClick={() => setActiveTab('properties')} style={navItemStyle('properties')} title="Properties">
+            <MapPin size={20} style={{ flexShrink: 0 }} /> {!sidebarCollapsed && 'Properties'}
+          </button>
+          <button onClick={() => setActiveTab('users')} style={navItemStyle('users')} title="User Roles">
+            <Users size={20} style={{ flexShrink: 0 }} /> {!sidebarCollapsed && 'User Roles'}
           </button>
         </nav>
 
-        <button onClick={onBack} style={{ background: '#1e293b', color: 'white', padding: '1rem', borderRadius: '12px', fontWeight: 700, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.8rem' }}>
-          <LogOut size={18} /> Exit Admin
+        <button onClick={onBack} title="Exit Admin" style={{ background: '#1e293b', color: 'white', padding: '1rem', borderRadius: '12px', fontWeight: 700, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: sidebarCollapsed ? '0' : '0.8rem', transition: 'all 0.25s ease', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+          <LogOut size={18} style={{ flexShrink: 0 }} /> {!sidebarCollapsed && 'Exit Admin'}
         </button>
       </aside>
 
       {/* Main Content */}
-      <main style={{ marginLeft: '280px', flex: 1, padding: '3rem 4rem' }}>
+      <main style={{ marginLeft: sidebarWidth, flex: 1, padding: '3rem 4rem', transition: 'margin-left 0.25s ease' }}>
         <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
-          >
+          <motion.div key={activeTab} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}>
             {notification && (
               <div style={{ background: '#f0fdf4', color: '#16a34a', padding: '1rem 2rem', borderRadius: '12px', marginBottom: '2rem', border: '2px solid #bbf7d0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
                 <CheckCircle2 size={20} /> {notification}
@@ -160,25 +197,18 @@ const AdminDashboard = ({ onBack, currentUser }) => {
                   <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 800 }}>Dashboard Overview</h1>
                   <p style={{ color: '#64748b', marginTop: '0.5rem' }}>System performance and key metrics at a glance.</p>
                 </header>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
                   <div style={{ background: 'white', padding: '2.5rem', borderRadius: '24px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.04)', borderLeft: '8px solid #5B7E3C' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <p style={{ margin: 0, color: '#64748b', fontSize: '1rem', fontWeight: 600 }}>Active Bookings</p>
-                        <h2 style={{ margin: '0.5rem 0 0', fontSize: '3rem', fontWeight: 800 }}>{allBookings.length}</h2>
-                      </div>
-                      <div style={{ background: '#f0f9eb', p: '1rem', borderRadius: '16px', color: '#5B7E3C' }}><Calendar size={32} /></div>
-                    </div>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '1rem', fontWeight: 600 }}>Active Bookings</p>
+                    <h2 style={{ margin: '0.5rem 0 0', fontSize: '3rem', fontWeight: 800 }}>{allBookings.length}</h2>
                   </div>
                   <div style={{ background: 'white', padding: '2.5rem', borderRadius: '24px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.04)', borderLeft: '8px solid #FF9D23' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <p style={{ margin: 0, color: '#64748b', fontSize: '1rem', fontWeight: 600 }}>Total Users</p>
-                        <h2 style={{ margin: '0.5rem 0 0', fontSize: '3rem', fontWeight: 800 }}>{allUsers.length}</h2>
-                      </div>
-                      <div style={{ background: '#fff7ed', p: '1rem', borderRadius: '16px', color: '#FF9D23' }}><Users size={32} /></div>
-                    </div>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '1rem', fontWeight: 600 }}>Total Users</p>
+                    <h2 style={{ margin: '0.5rem 0 0', fontSize: '3rem', fontWeight: 800 }}>{allUsers.length}</h2>
+                  </div>
+                  <div style={{ background: 'white', padding: '2.5rem', borderRadius: '24px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.04)', borderLeft: '8px solid #EA5252' }}>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '1rem', fontWeight: 600 }}>Property Types</p>
+                    <h2 style={{ margin: '0.5rem 0 0', fontSize: '3rem', fontWeight: 800 }}>{propertyTypes.length}</h2>
                   </div>
                 </div>
               </>
@@ -190,31 +220,79 @@ const AdminDashboard = ({ onBack, currentUser }) => {
                   <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 800 }}>Reservations Management</h1>
                   <p style={{ color: '#64748b', marginTop: '0.5rem' }}>View and manage all guest stays across properties.</p>
                 </header>
-
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>Guest Email</th>
-                      <th style={thStyle}>Property</th>
-                      <th style={thStyle}>Dates</th>
-                      <th style={thStyle}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allBookings.map((b, i) => (
-                      <tr key={i}>
-                        <td style={tdStyle}>{b.userEmail}</td>
-                        <td style={tdStyle}><span style={{ fontWeight: 700, color: '#5B7E3C' }}>{b.property}</span></td>
-                        <td style={tdStyle}>{b.checkIn} — {b.checkOut}</td>
-                        <td style={tdStyle}>
-                          <button onClick={() => handleAdminCancel(b.id)} style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fda4af', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
-                            Force Cancel
-                          </button>
-                        </td>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}>Guest Name</th>
+                        <th style={thStyle}>Mobile</th>
+                        <th style={thStyle}>Email</th>
+                        <th style={thStyle}>Age</th>
+                        <th style={thStyle}>Gender</th>
+                        <th style={thStyle}>Property</th>
+                        <th style={thStyle}>Stay Period</th>
+                        <th style={thStyle}>Guests</th>
+                        <th style={thStyle}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {allBookings.map((b, i) => (
+                        <tr key={i}>
+                          <td style={tdStyle}><strong>{b.guestName || '—'}</strong></td>
+                          <td style={tdStyle}>{b.mobile || '—'}</td>
+                          <td style={tdStyle}>{b.userEmail || '—'}</td>
+                          <td style={tdStyle}>{b.age || '—'}</td>
+                          <td style={tdStyle}>{b.gender || '—'}</td>
+                          <td style={tdStyle}><span style={{ fontWeight: 700, color: '#5B7E3C' }}>{b.property}</span></td>
+                          <td style={tdStyle}>{formatDate(b.checkIn)} to {formatDate(b.checkOut)}</td>
+                          <td style={tdStyle}>{b.guests || '—'}</td>
+                          <td style={tdStyle}>
+                            <button onClick={() => handleAdminCancel(b.id)} style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fda4af', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>Force Cancel</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {allBookings.length === 0 && <tr><td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: '#94a3b8', padding: '3rem' }}>No bookings yet.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'properties' && (
+              <>
+                <header style={{ marginBottom: '3rem' }}>
+                  <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 800 }}>Property Types</h1>
+                  <p style={{ color: '#64748b', marginTop: '0.5rem' }}>Add, edit or remove the types of stays available for booking.</p>
+                </header>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '2.5rem' }}>
+                  <input value={newPropertyName} onChange={e => setNewPropertyName(e.target.value)} placeholder="New property name..." style={inputStyle} onKeyDown={e => e.key === 'Enter' && handleAddProperty()} />
+                  <button onClick={handleAddProperty} style={{ background: '#5B7E3C', color: 'white', border: 'none', padding: '0.8rem 1.5rem', borderRadius: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', whiteSpace: 'nowrap' }}><Plus size={18} /> Add</button>
+                </div>
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                  {propertyTypes.map((pt, i) => (
+                    <div key={i} style={{ background: 'white', padding: '1.5rem 2rem', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                      {editingIndex === i ? (
+                        <div style={{ display: 'flex', gap: '0.8rem', flex: 1 }}>
+                          <input value={editingName} onChange={e => setEditingName(e.target.value)} style={{ ...inputStyle, flex: 1 }} onKeyDown={e => e.key === 'Enter' && handleSaveProperty(i)} />
+                          <button onClick={() => handleSaveProperty(i)} style={{ background: '#5B7E3C', color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}>Save</button>
+                          <button onClick={() => setEditingIndex(null)} style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', padding: '0.6rem 1.2rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                            <MapPin size={20} color="#5B7E3C" />
+                            <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>{pt}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.6rem' }}>
+                            <button onClick={() => { setEditingIndex(i); setEditingName(pt) }} style={{ background: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Pencil size={14} /> Edit</button>
+                            <button onClick={() => handleDeleteProperty(i)} style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fda4af', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Trash2 size={14} /> Delete</button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                  {propertyTypes.length === 0 && <p style={{ color: '#94a3b8', textAlign: 'center', padding: '3rem' }}>No property types defined. Add one above.</p>}
+                </div>
               </>
             )}
 
@@ -224,35 +302,15 @@ const AdminDashboard = ({ onBack, currentUser }) => {
                   <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 800 }}>User & Access Control</h1>
                   <p style={{ color: '#64748b', marginTop: '0.5rem' }}>Manage system permissions and user accounts.</p>
                 </header>
-
                 <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>User Name</th>
-                      <th style={thStyle}>Email</th>
-                      <th style={thStyle}>Current Role</th>
-                      <th style={thStyle}>Actions</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th style={thStyle}>User Name</th><th style={thStyle}>Email</th><th style={thStyle}>Current Role</th><th style={thStyle}>Actions</th></tr></thead>
                   <tbody>
                     {allUsers.map((u, i) => (
                       <tr key={i}>
                         <td style={tdStyle}>{u.name}</td>
                         <td style={tdStyle}>{u.email}</td>
                         <td style={tdStyle}>
-                          <span style={{ 
-                            background: u.role === 'Administrator' ? '#f0f9ff' : '#f8fafc', 
-                            color: u.role === 'Administrator' ? '#0284c7' : '#64748b',
-                            padding: '0.5rem 1rem',
-                            borderRadius: '100px',
-                            fontSize: '0.75rem',
-                            fontWeight: 800,
-                            border: u.role === 'Administrator' ? '1px solid #bae6fd' : '1px solid #e2e8f0',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            textTransform: 'uppercase'
-                          }}>
+                          <span style={{ background: u.role === 'Administrator' ? '#f0f9ff' : '#f8fafc', color: u.role === 'Administrator' ? '#0284c7' : '#64748b', padding: '0.5rem 1rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 800, border: u.role === 'Administrator' ? '1px solid #bae6fd' : '1px solid #e2e8f0', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', textTransform: 'uppercase' }}>
                             {u.role === 'Administrator' ? <ShieldCheck size={14} /> : <User size={14} />}
                             {u.role || 'Guest'}
                           </span>
@@ -261,18 +319,14 @@ const AdminDashboard = ({ onBack, currentUser }) => {
                           <div style={{ display: 'flex', gap: '0.8rem' }}>
                             {u.email !== 'admin@email.com' && (
                               <>
-                                <button onClick={() => handleToggleRole(u.email)} style={{ background: 'white', border: '2px solid #5B7E3C', color: '#5B7E3C', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
-                                  Set as {u.role === 'Administrator' ? 'Guest' : 'Administrator'}
-                                </button>
+                                <button onClick={() => handleToggleRole(u.email)} style={{ background: 'white', border: '2px solid #5B7E3C', color: '#5B7E3C', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>Set as {u.role === 'Administrator' ? 'Guest' : 'Administrator'}</button>
                                 {confirmDeleteEmail === u.email ? (
                                   <div style={{ display: 'flex', gap: '0.4rem', background: '#fff1f2', padding: '0.4rem', borderRadius: '12px', border: '1px solid #fda4af' }}>
                                     <button onClick={() => handleDeleteUser(u.email)} style={{ background: '#EA5252', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 800 }}>Delete</button>
                                     <button onClick={() => setConfirmDeleteEmail(null)} style={{ background: 'white', color: '#64748b', border: '1px solid #e2e8f0', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 800 }}>Cancel</button>
                                   </div>
                                 ) : (
-                                  <button onClick={() => setConfirmDeleteEmail(u.email)} style={{ background: 'none', border: '2px solid #EA5252', color: '#EA5252', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <Trash2 size={16} /> Delete
-                                  </button>
+                                  <button onClick={() => setConfirmDeleteEmail(u.email)} style={{ background: 'none', border: '2px solid #EA5252', color: '#EA5252', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Trash2 size={16} /> Delete</button>
                                 )}
                               </>
                             )}
@@ -290,6 +344,8 @@ const AdminDashboard = ({ onBack, currentUser }) => {
     </div>
   )
 }
+
+
 
 // --- UI Components ---
 
@@ -424,31 +480,89 @@ const LoginModal = ({ isOpen, onClose, onLogin }) => {
   )
 }
 
-const BookingModal = ({ isOpen, onClose, onBookingComplete, user }) => {
-  const [step, setStep] = useState(1); const [bookingData, setBookingData] = useState({ id: '', checkIn: '', checkOut: '', guests: 1, property: 'Forest Cabin', status: 'Confirmed' })
-  useEffect(() => { if (isOpen) { setStep(1); setBookingData({ id: '', checkIn: '', checkOut: '', guests: 1, property: 'Forest Cabin', status: 'Confirmed' }); } }, [isOpen])
-  const handleSubmit = (e) => { e.preventDefault(); if (!user) { alert("Sign in to book!"); return; } const newBooking = { ...bookingData, id: Math.random().toString(36).substr(2, 9), date: new Date().toLocaleDateString(), userEmail: user.email }; const existing = JSON.parse(localStorage.getItem('bookings') || '[]'); localStorage.setItem('bookings', JSON.stringify([...existing, newBooking])); if (onBookingComplete) onBookingComplete(); setStep(2) }
+const BookingModal = ({ isOpen, onClose, onBookingComplete, user, onOpenLogin }) => {
+  const [step, setStep] = useState(1)
+  const [propertyTypes, setPropertyTypes] = useState([])
+  const [bookingData, setBookingData] = useState({ checkIn: '', checkOut: '', guests: 1, property: '', guestName: '', age: '', gender: '', mobile: '', status: 'Confirmed' })
+  const fStyle = { padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)', fontSize: '0.95rem', width: '100%', boxSizing: 'border-box' }
+
+  useEffect(() => {
+    if (isOpen) {
+      const types = getPropertyTypes()
+      setPropertyTypes(types)
+      setStep(1)
+      setBookingData({ checkIn: '', checkOut: '', guests: 1, property: types[0] || '', guestName: '', age: '', gender: '', mobile: '', status: 'Confirmed' })
+    }
+  }, [isOpen])
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const newBooking = { ...bookingData, id: Math.random().toString(36).substr(2, 9), date: new Date().toLocaleDateString(), userEmail: user?.email || '' }
+    const existing = JSON.parse(localStorage.getItem('bookings') || '[]')
+    localStorage.setItem('bookings', JSON.stringify([...existing, newBooking]))
+    if (onBookingComplete) onBookingComplete()
+    setStep(2)
+  }
+
+  const handleCreateAccount = () => { onClose(); if (onOpenLogin) onOpenLogin() }
+
   return (
     <AnimatePresence>
       {isOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(91, 126, 60, 0.1)', backdropFilter: 'blur(8px)' }} />
-          <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="glass" style={{ width: '100%', maxWidth: '500px', padding: '3rem', borderRadius: '28px', position: 'relative' }}>
+          <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="glass" style={{ width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', padding: '3rem', borderRadius: '28px', position: 'relative' }}>
             <button onClick={onClose} style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', background: 'none', color: '#94a3b8', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
             {step === 1 ? (
-              <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1.5rem' }}>
-                <h2 style={{ fontSize: '2.2rem', fontWeight: 800 }}>Reserve Now</h2>
-                <select className="glass" style={{ padding: '1.2rem', borderRadius: '14px', border: '1px solid var(--border)' }} value={bookingData.property} onChange={(e) => setBookingData({ ...bookingData, property: e.target.value })}><option>Forest Cabin</option><option>Amber Villa</option><option>Crimson Lodge</option></select>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}><input type="date" className="glass" style={{ padding: '1.2rem', borderRadius: '14px' }} required onChange={(e) => setBookingData({ ...bookingData, checkIn: e.target.value })} /><input type="date" className="glass" style={{ padding: '1.2rem', borderRadius: '14px' }} required onChange={(e) => setBookingData({ ...bookingData, checkOut: e.target.value })} /></div>
-                <button type="submit" className="btn-booking" style={{ height: '60px', fontSize: '1.1rem' }}>Confirm Booking</button>
+              <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1.2rem' }}>
+                <h2 style={{ fontSize: '2rem', fontWeight: 800 }}>Reserve Your Stay</h2>
+                <input type="text" value={bookingData.guestName} onChange={e => setBookingData({ ...bookingData, guestName: e.target.value })} placeholder="Full Name *" required style={fStyle} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <input type="number" min="1" max="120" value={bookingData.age} onChange={e => setBookingData({ ...bookingData, age: e.target.value })} placeholder="Age *" required style={fStyle} />
+                  <select value={bookingData.gender} onChange={e => setBookingData({ ...bookingData, gender: e.target.value })} required style={fStyle}>
+                    <option value="">Gender *</option>
+                    <option>Male</option>
+                    <option>Female</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <input type="number" min="1" value={bookingData.guests} onChange={e => setBookingData({ ...bookingData, guests: e.target.value })} placeholder="No. of Guests *" required style={fStyle} />
+                  <input type="tel" value={bookingData.mobile} onChange={e => setBookingData({ ...bookingData, mobile: e.target.value })} placeholder="Mobile *" required style={fStyle} />
+                </div>
+                <select value={bookingData.property} onChange={e => setBookingData({ ...bookingData, property: e.target.value })} required style={fStyle}>
+                  {propertyTypes.map((pt, i) => <option key={i} value={pt}>{pt}</option>)}
+                </select>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div><label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Check-in</label><input type="date" value={bookingData.checkIn} onChange={e => setBookingData({ ...bookingData, checkIn: e.target.value })} required style={fStyle} /></div>
+                  <div><label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Check-out</label><input type="date" value={bookingData.checkOut} onChange={e => setBookingData({ ...bookingData, checkOut: e.target.value })} required style={fStyle} /></div>
+                </div>
+                <button type="submit" className="btn-booking" style={{ height: '56px', fontSize: '1.05rem' }}>Confirm Booking</button>
               </form>
-            ) : (<div style={{ textAlign: 'center', padding: '2rem 0' }}><CheckCircle2 size={80} color="#5B7E3C" style={{ marginBottom: '1.5rem' }} /><h2 style={{ fontSize: '2.2rem', fontWeight: 800 }}>Success!</h2><button onClick={onClose} className="btn-primary" style={{ width: '100%', marginTop: '2rem' }}>Back Home</button></div>)}
+            ) : (
+              <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+                <CheckCircle2 size={70} color="#5B7E3C" style={{ marginBottom: '1rem' }} />
+                <h2 style={{ fontSize: '2rem', fontWeight: 800 }}>Booking Confirmed!</h2>
+                <p style={{ color: '#64748b', margin: '0.8rem 0' }}>Your stay at <strong style={{ color: '#5B7E3C' }}>{bookingData.property}</strong></p>
+                <p style={{ color: '#64748b', fontSize: '0.95rem' }}>{formatDate(bookingData.checkIn)} to {formatDate(bookingData.checkOut)}</p>
+                {!user && (
+                  <div style={{ background: 'linear-gradient(135deg, #f0f9eb, #fff7ed)', border: '2px solid #bbf7d0', borderRadius: '20px', padding: '1.8rem', marginTop: '1.5rem', textAlign: 'center' }}>
+                    <p style={{ fontSize: '1.5rem', margin: '0 0 0.5rem' }}>🌿</p>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.5rem' }}>Welcome to Snehanir!</h3>
+                    <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '1rem' }}>Create a free account to manage your bookings, receive updates, and enjoy a personalised experience.</p>
+                    <button onClick={handleCreateAccount} className="btn-primary" style={{ padding: '0.8rem 2rem', fontSize: '0.95rem' }}>Create Account</button>
+                  </div>
+                )}
+                <button onClick={onClose} style={{ width: '100%', marginTop: '1.2rem', padding: '0.8rem', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '12px', fontWeight: 700, color: '#64748b', cursor: 'pointer' }}>{user ? 'Back Home' : 'Maybe Later'}</button>
+              </div>
+            )}
           </motion.div>
         </div>
       )}
     </AnimatePresence>
   )
 }
+
 
 const MyBookingsModal = ({ isOpen, onClose, user }) => {
   const [localBookings, setLocalBookings] = useState([]); const [confirmCancelId, setConfirmCancelId] = useState(null)
@@ -466,7 +580,7 @@ const MyBookingsModal = ({ isOpen, onClose, user }) => {
               <div style={{ display: 'grid', gap: '1.5rem' }}>{localBookings.map((b, i) => (
                 <div key={i} className="glass" style={{ padding: '2rem', borderRadius: '20px', background: 'var(--background)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}><h3 style={{ fontSize: '1.4rem', color: '#5B7E3C' }}>{b.property}</h3>{confirmCancelId === b.id ? (<div style={{ display: 'flex', gap: '0.5rem' }}><button onClick={() => handleCancel(b.id)} style={{ padding: '0.4rem 0.8rem', background: '#EA5252', color: 'white', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700 }}>Confirm</button><button onClick={() => setConfirmCancelId(null)} style={{ padding: '0.4rem 0.8rem', background: '#e2e8f0', color: '#64748b', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700 }}>Back</button></div>) : (<button onClick={() => setConfirmCancelId(b.id)} className="btn-cancel" style={{ background: 'none', color: '#EA5252', border: '2px solid #EA5252', borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.875rem', fontWeight: 700 }}>Cancel Booking</button>)}</div>
-                  <p style={{ color: '#64748b', fontWeight: 500 }}>{b.checkIn} — {b.checkOut}</p>
+                  <p style={{ color: '#64748b', fontWeight: 500 }}>{formatDate(b.checkIn)} to {formatDate(b.checkOut)}</p>
                 </div>))}
               </div>
             )}
@@ -492,6 +606,11 @@ function App() {
       localStorage.setItem('user_accounts', JSON.stringify(existingUsers))
     }
 
+    // Seed property types if missing
+    if (!localStorage.getItem('property_types')) {
+      localStorage.setItem('property_types', JSON.stringify(['Forest Cabin', 'Amber Villa', 'Crimson Lodge']))
+    }
+
     // Crucial: Synchronize role from user_accounts to logged-in user session
     if (currentUser) {
       const account = existingUsers.find(u => u.email === currentUser.email)
@@ -510,7 +629,7 @@ function App() {
       <Navbar onOpenBooking={() => setIsBookingOpen(true)} onOpenMyBookings={() => setIsMyBookingsOpen(true)} onOpenLogin={() => setIsLoginOpen(true)} onOpenAdmin={() => setView('admin')} onLogout={handleLogout} user={user} />
       <Hero onOpenBooking={() => setIsBookingOpen(true)} />
       <LoginModal key={`login-${isLoginOpen}`} isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={handleLogin} />
-      <BookingModal isOpen={isBookingOpen} onClose={() => setIsBookingOpen(false)} onBookingComplete={() => setRefreshKey(k => k + 1)} user={user} />
+      <BookingModal isOpen={isBookingOpen} onClose={() => setIsBookingOpen(false)} onBookingComplete={() => setRefreshKey(k => k + 1)} user={user} onOpenLogin={() => setIsLoginOpen(true)} />
       <MyBookingsModal isOpen={isMyBookingsOpen} onClose={() => setIsMyBookingsOpen(false)} user={user} />
       <section style={{ padding: '6rem 0' }}><div className="container"><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '4rem' }}>{[{ title: "Forest Aura", icon: <Star />, color: '#5B7E3C' }, { title: "Orange Sunset", icon: <Sun />, color: '#FF9D23' }, { title: "Crimson Peak", icon: <CheckCircle2 />, color: '#EA5252' }].map((item, i) => (<motion.div key={i} whileHover={{ y: -15 }} className="glass" style={{ padding: '4rem 3rem', borderRadius: '40px', textAlign: 'center' }}><div style={{ color: item.color, marginBottom: '2rem', display: 'flex', justifyContent: 'center' }}>{item.icon}</div><h3 style={{ fontSize: '1.8rem', fontWeight: 800 }}>{item.title}</h3></motion.div>))}</div></div></section>
       <footer style={{ padding: '6rem 0', textAlign: 'center', color: '#94a3b8', borderTop: '1px solid var(--border)' }}><p>© 2026 LuxeStay. Colorful Nature.</p></footer>
