@@ -2,7 +2,9 @@ import React, { useState, Suspense, useRef, useEffect } from 'react'
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { PerspectiveCamera, Float, ContactShadows, Environment, OrbitControls } from '@react-three/drei'
-import { Calendar, Users, MapPin, Star, ChevronRight, ChevronLeft, Home, Menu, X, CheckCircle2, Sun, Moon, LogIn, User, LogOut, Trash2, ShieldCheck, ShieldAlert, Plus, Pencil, Phone } from 'lucide-react'
+import { Calendar, Users, MapPin, Star, ChevronRight, ChevronLeft, Home, Menu, X, CheckCircle2, Sun, Moon, LogIn, User, LogOut, Trash2, ShieldCheck, ShieldAlert, Plus, Pencil, Phone, Filter } from 'lucide-react'
+import { auth } from './firebase'
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
 
 // --- Helpers ---
 const formatDate = (dateStr) => {
@@ -62,79 +64,114 @@ const AdminDashboard = ({ onBack, currentUser }) => {
   const [editingIndex, setEditingIndex] = useState(null)
   const [editingName, setEditingName] = useState('')
   const [notification, setNotification] = useState(null)
-  const [confirmDeleteEmail, setConfirmDeleteEmail] = useState(null)
+  const [expandedBookingId, setExpandedBookingId] = useState(null)
+  const [bookingFilters, setBookingFilters] = useState({ id: '', name: '', property: '', checkIn: '', checkOut: '', status: '' })
+  const [activeFilterDropdown, setActiveFilterDropdown] = useState(null)
 
-  const loadData = () => {
-    setAllBookings(JSON.parse(localStorage.getItem('bookings') || '[]'))
-    setAllUsers(JSON.parse(localStorage.getItem('user_accounts') || '[]'))
-    setPropertyTypes(getPropertyTypes())
+  const loadData = async () => {
+    try {
+      const [bookingsRes, usersRes, propsRes] = await Promise.all([
+        fetch('http://localhost:3001/api/bookings'),
+        fetch('http://localhost:3001/api/users'),
+        fetch('http://localhost:3001/api/properties')
+      ]);
+      const bookings = await bookingsRes.json();
+      const users = await usersRes.json();
+      const props = await propsRes.json();
+      setAllBookings(Array.isArray(bookings) ? bookings : []);
+      setAllUsers(Array.isArray(users) ? users : []);
+      setPropertyTypes(Array.isArray(props) ? props : []);
+    } catch (e) {
+      console.error('Failed to load data from API:', e);
+    }
   }
 
   useEffect(() => { loadData() }, [])
   useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 3000); return () => clearTimeout(t) } }, [notification])
 
-  const handleToggleRole = (email) => {
-    const updated = allUsers.map(u => u.email === email ? { ...u, role: (u.role === 'Administrator' ? 'Guest' : 'Administrator') } : u)
-    if (updated.find(u => u.email === email)) setNotification(`Role for ${email} updated`)
-    localStorage.setItem('user_accounts', JSON.stringify(updated))
-    setAllUsers(updated)
+  useEffect(() => {
+    const handleDocClick = () => setActiveFilterDropdown(null)
+    document.addEventListener('click', handleDocClick)
+    return () => document.removeEventListener('click', handleDocClick)
+  }, [])
+
+  const handleToggleRole = async (email) => {
+    const user = allUsers.find(u => u.email === email);
+    if (!user) return;
+    const newRole = user.role === 'Administrator' ? 'Guest' : 'Administrator';
+    try {
+      await fetch('http://localhost:3001/api/users/role', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role: newRole })
+      });
+      setAllUsers(allUsers.map(u => u.email === email ? { ...u, role: newRole } : u));
+      setNotification(`Role for ${email} updated`);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
-  const handleAdminCancel = (bookingId) => {
-    const updated = allBookings.filter(b => b.id !== bookingId)
-    localStorage.setItem('bookings', JSON.stringify(updated))
-    setAllBookings(updated)
-    setNotification('Booking cancelled successfully')
-  }
-
-  const handleDeleteUser = (email) => {
-    const updatedUsers = allUsers.filter(u => u.email !== email)
-    localStorage.setItem('user_accounts', JSON.stringify(updatedUsers))
-    setAllUsers(updatedUsers)
-    const updatedBookings = JSON.parse(localStorage.getItem('bookings') || '[]').filter(b => b.userEmail !== email)
-    localStorage.setItem('bookings', JSON.stringify(updatedBookings))
-    setAllBookings(updatedBookings)
-    setConfirmDeleteEmail(null)
-    setNotification(`User ${email} deleted`)
+  const handleAdminCancel = async (bookingId) => {
+    try {
+      await fetch(`http://localhost:3001/api/bookings/${bookingId}/cancel`, { method: 'PUT' });
+      setAllBookings(allBookings.map(b => b.id === bookingId ? { ...b, status: 'Cancelled' } : b));
+      setNotification('Booking cancelled successfully');
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   // Property management
-  const handleAddProperty = () => {
+  const handleAddProperty = async () => {
     if (!newPropertyName.trim()) return
-    const updated = [...propertyTypes, newPropertyName.trim()]
-    localStorage.setItem('property_types', JSON.stringify(updated))
-    setPropertyTypes(updated)
-    setNotification(`Property "${newPropertyName.trim()}" added`)
-    setNewPropertyName('')
+    try {
+      await fetch('http://localhost:3001/api/properties', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newPropertyName.trim() })
+      });
+      setPropertyTypes([...propertyTypes, newPropertyName.trim()]);
+      setNotification(`Property "${newPropertyName.trim()}" added`);
+      setNewPropertyName('');
+    } catch (e) {
+      console.error(e);
+    }
   }
 
-  const handleSaveProperty = (index) => {
+  const handleSaveProperty = async (index) => {
     if (!editingName.trim()) return
     const oldName = propertyTypes[index]
-    const updated = [...propertyTypes]
-    updated[index] = editingName.trim()
-    localStorage.setItem('property_types', JSON.stringify(updated))
-    setPropertyTypes(updated)
-    const bookings = JSON.parse(localStorage.getItem('bookings') || '[]').map(b => b.property === oldName ? { ...b, property: editingName.trim() } : b)
-    localStorage.setItem('bookings', JSON.stringify(bookings))
-    setAllBookings(bookings)
-    setEditingIndex(null)
-    setNotification(`Property renamed to "${editingName.trim()}"`)
+    try {
+      await fetch('http://localhost:3001/api/properties', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldName, newName: editingName.trim() })
+      });
+      const updated = [...propertyTypes];
+      updated[index] = editingName.trim();
+      setPropertyTypes(updated);
+      setAllBookings(allBookings.map(b => b.property === oldName ? { ...b, property: editingName.trim() } : b));
+      setEditingIndex(null);
+      setNotification(`Property renamed to "${editingName.trim()}"`);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
-  const handleDeleteProperty = (index) => {
+  const handleDeleteProperty = async (index) => {
     const name = propertyTypes[index]
-    const updated = propertyTypes.filter((_, i) => i !== index)
-    localStorage.setItem('property_types', JSON.stringify(updated))
-    setPropertyTypes(updated)
-    setNotification(`Property "${name}" deleted`)
+    try {
+      await fetch(`http://localhost:3001/api/properties/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      setPropertyTypes(propertyTypes.filter((_, i) => i !== index));
+      setNotification(`Property "${name}" deleted`);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   const tableStyle = { width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', marginBottom: '2.5rem' }
   const thStyle = { textAlign: 'left', padding: '1rem', background: '#f1f5f9', borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, whiteSpace: 'nowrap' }
   const tdStyle = { padding: '1rem', borderBottom: '1px solid #f1f5f9', fontSize: '0.85rem', whiteSpace: 'nowrap' }
   const sidebarWidth = sidebarCollapsed ? '80px' : '280px'
-  const inputStyle = { padding: '0.8rem 1rem', borderRadius: '10px', border: '2px solid #e2e8f0', fontSize: '0.9rem', width: '100%' }
+  const inputStyle = { padding: '0.8rem 1rem', borderRadius: '10px', border: '2px solid #e2e8f0', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }
 
   const navItemStyle = (tab) => ({
     display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? '0' : '1rem',
@@ -216,45 +253,111 @@ const AdminDashboard = ({ onBack, currentUser }) => {
 
             {activeTab === 'bookings' && (
               <>
-                <header style={{ marginBottom: '3rem' }}>
+                <header style={{ marginBottom: '2rem' }}>
                   <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 800 }}>Reservations Management</h1>
                   <p style={{ color: '#64748b', marginTop: '0.5rem' }}>View and manage all guest stays across properties.</p>
                 </header>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={tableStyle}>
-                    <thead>
-                      <tr>
-                        <th style={thStyle}>Guest Name</th>
-                        <th style={thStyle}>Mobile</th>
-                        <th style={thStyle}>Email</th>
-                        <th style={thStyle}>Age</th>
-                        <th style={thStyle}>Gender</th>
-                        <th style={thStyle}>Property</th>
-                        <th style={thStyle}>Stay Period</th>
-                        <th style={thStyle}>Guests</th>
-                        <th style={thStyle}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allBookings.map((b, i) => (
-                        <tr key={i}>
-                          <td style={tdStyle}><strong>{b.guestName || '—'}</strong></td>
-                          <td style={tdStyle}>{b.mobile || '—'}</td>
-                          <td style={tdStyle}>{b.userEmail || '—'}</td>
-                          <td style={tdStyle}>{b.age || '—'}</td>
-                          <td style={tdStyle}>{b.gender || '—'}</td>
-                          <td style={tdStyle}><span style={{ fontWeight: 700, color: '#5B7E3C' }}>{b.property}</span></td>
-                          <td style={tdStyle}>{formatDate(b.checkIn)} to {formatDate(b.checkOut)}</td>
-                          <td style={tdStyle}>{b.guests || '—'}</td>
-                          <td style={tdStyle}>
-                            <button onClick={() => handleAdminCancel(b.id)} style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fda4af', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>Force Cancel</button>
-                          </td>
-                        </tr>
-                      ))}
-                      {allBookings.length === 0 && <tr><td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: '#94a3b8', padding: '3rem' }}>No bookings yet.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
+
+                {(() => {
+                  const filteredBookings = allBookings.filter(b => {
+                    if (bookingFilters.id && !b.id?.toLowerCase().includes(bookingFilters.id.toLowerCase())) return false;
+                    if (bookingFilters.name && !b.guestName?.toLowerCase().includes(bookingFilters.name.toLowerCase())) return false;
+                    if (bookingFilters.property && b.property !== bookingFilters.property) return false;
+                    if (bookingFilters.checkIn && b.checkIn !== bookingFilters.checkIn) return false;
+                    if (bookingFilters.checkOut && b.checkOut !== bookingFilters.checkOut) return false;
+                    const currentStatus = b.status || 'Confirmed';
+                    if (bookingFilters.status && currentStatus !== bookingFilters.status) return false;
+                    return true;
+                  });
+
+                  const renderFilterTh = (colKey, title, inputElement) => {
+                    const isActive = bookingFilters[colKey] !== '';
+                    return (
+                      <th style={{ ...thStyle, padding: '0' }}>
+                        <div style={{ padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', position: 'relative' }}>
+                          <span>{title}</span>
+                          <div onClick={(e) => { e.stopPropagation(); setActiveFilterDropdown(activeFilterDropdown === colKey ? null : colKey); }} style={{ cursor: 'pointer', padding: '0.3rem', borderRadius: '6px', background: isActive ? '#dcfce7' : 'transparent', display: 'flex', transition: 'background 0.2s' }}>
+                            <Filter size={14} color={isActive ? '#16a34a' : '#94a3b8'} />
+                          </div>
+                          <AnimatePresence>
+                            {activeFilterDropdown === colKey && (
+                              <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, background: 'white', padding: '1.2rem', borderRadius: '12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)', zIndex: 50, border: '1px solid #e2e8f0', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                                <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>Filter by {title}</p>
+                                <div style={{ width: '100%' }}>{inputElement}</div>
+                                {isActive && <button onClick={() => setBookingFilters({ ...bookingFilters, [colKey]: '' })} style={{ width: '100%', background: '#fff1f2', color: '#e11d48', border: '1px solid #fda4af', padding: '0.6rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', boxSizing: 'border-box' }}>Clear Filter</button>}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </th>
+                    );
+                  };
+
+                  return (
+                    <>
+                      <div style={{ overflowX: 'visible', paddingBottom: '150px' }}>
+                        <table style={{ ...tableStyle, overflow: 'visible' }}>
+                          <thead>
+                            <tr>
+                              {renderFilterTh('id', 'Booking ID', <input placeholder="e.g. #AMB-000001" value={bookingFilters.id} onChange={e => setBookingFilters({ ...bookingFilters, id: e.target.value })} style={inputStyle} autoFocus />)}
+                              {renderFilterTh('name', 'Name', <input placeholder="e.g. John Doe" value={bookingFilters.name} onChange={e => setBookingFilters({ ...bookingFilters, name: e.target.value })} style={inputStyle} autoFocus />)}
+                              {renderFilterTh('property', 'Property',
+                                <select value={bookingFilters.property} onChange={e => setBookingFilters({ ...bookingFilters, property: e.target.value })} style={inputStyle}>
+                                  <option value="">All Properties</option>
+                                  {propertyTypes.map(pt => <option key={pt} value={pt}>{pt}</option>)}
+                                </select>
+                              )}
+                              {renderFilterTh('checkIn', 'Check-in', <input type="date" value={bookingFilters.checkIn} onChange={e => setBookingFilters({ ...bookingFilters, checkIn: e.target.value })} style={inputStyle} />)}
+                              {renderFilterTh('checkOut', 'Check-out', <input type="date" value={bookingFilters.checkOut} onChange={e => setBookingFilters({ ...bookingFilters, checkOut: e.target.value })} style={inputStyle} />)}
+                              {renderFilterTh('status', 'Status',
+                                <select value={bookingFilters.status} onChange={e => setBookingFilters({ ...bookingFilters, status: e.target.value })} style={inputStyle}>
+                                  <option value="">All Statuses</option>
+                                  <option>Confirmed</option>
+                                  <option>Cancelled</option>
+                                </select>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredBookings.map((b, i) => (
+                              <React.Fragment key={i}>
+                                <tr style={{ cursor: 'pointer', background: expandedBookingId === b.id ? '#f8fafc' : 'white', transition: 'background 0.2s' }} onClick={() => setExpandedBookingId(expandedBookingId === b.id ? null : b.id)}>
+                                  <td style={tdStyle}><strong style={{ color: '#1e293b' }}>{b.id || '—'}</strong></td>
+                                  <td style={tdStyle}><strong>{b.guestName || '—'}</strong></td>
+                                  <td style={tdStyle}><span style={{ fontWeight: 700, color: '#5B7E3C' }}>{b.property}</span></td>
+                                  <td style={tdStyle}>{formatDate(b.checkIn)}</td>
+                                  <td style={tdStyle}>{formatDate(b.checkOut)}</td>
+                                  <td style={tdStyle}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }} onClick={e => e.stopPropagation()}>
+                                      <span style={{ background: '#dcfce7', color: '#16a34a', padding: '0.4rem 0.8rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700 }}>{b.status || 'Confirmed'}</span>
+                                      <button onClick={() => handleAdminCancel(b.id)} style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fda4af', padding: '0.4rem 0.8rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>Cancel</button>
+                                    </div>
+                                  </td>
+                                </tr>
+                                {expandedBookingId === b.id && (
+                                  <tr>
+                                    <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid #f1f5f9' }}>
+                                      <div style={{ padding: '1.5rem', background: '#f8fafc', margin: '0.5rem 1rem 1.5rem 1rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+                                          <div><p style={{ margin: '0 0 0.3rem 0', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Email</p><p style={{ margin: 0, fontWeight: 600, color: '#1e293b' }}>{b.userEmail || '—'}</p></div>
+                                          <div><p style={{ margin: '0 0 0.3rem 0', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Mobile</p><p style={{ margin: 0, fontWeight: 600, color: '#1e293b' }}>{b.countryCode ? b.countryCode + ' ' : ''}{b.mobile || '—'}</p></div>
+                                          <div><p style={{ margin: '0 0 0.3rem 0', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Date of Birth</p><p style={{ margin: 0, fontWeight: 600, color: '#1e293b' }}>{b.dob ? formatDate(b.dob) : (b.age || '—')}</p></div>
+                                          <div><p style={{ margin: '0 0 0.3rem 0', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Gender</p><p style={{ margin: 0, fontWeight: 600, color: '#1e293b' }}>{b.gender || '—'}</p></div>
+                                          <div><p style={{ margin: '0 0 0.3rem 0', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>No. of Guests</p><p style={{ margin: 0, fontWeight: 600, color: '#1e293b' }}>{b.guests || '—'}</p></div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            {filteredBookings.length === 0 && <tr><td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: '#94a3b8', padding: '3rem' }}>No bookings found.</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
               </>
             )}
 
@@ -317,18 +420,8 @@ const AdminDashboard = ({ onBack, currentUser }) => {
                         </td>
                         <td style={tdStyle}>
                           <div style={{ display: 'flex', gap: '0.8rem' }}>
-                            {u.email !== 'admin@email.com' && (
-                              <>
-                                <button onClick={() => handleToggleRole(u.email)} style={{ background: 'white', border: '2px solid #5B7E3C', color: '#5B7E3C', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>Set as {u.role === 'Administrator' ? 'Guest' : 'Administrator'}</button>
-                                {confirmDeleteEmail === u.email ? (
-                                  <div style={{ display: 'flex', gap: '0.4rem', background: '#fff1f2', padding: '0.4rem', borderRadius: '12px', border: '1px solid #fda4af' }}>
-                                    <button onClick={() => handleDeleteUser(u.email)} style={{ background: '#EA5252', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 800 }}>Delete</button>
-                                    <button onClick={() => setConfirmDeleteEmail(null)} style={{ background: 'white', color: '#64748b', border: '1px solid #e2e8f0', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 800 }}>Cancel</button>
-                                  </div>
-                                ) : (
-                                  <button onClick={() => setConfirmDeleteEmail(u.email)} style={{ background: 'none', border: '2px solid #EA5252', color: '#EA5252', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Trash2 size={16} /> Delete</button>
-                                )}
-                              </>
+                            {u.email !== 'prodkasafar@gmail.com' && (
+                              <button onClick={() => handleToggleRole(u.email)} style={{ background: 'white', border: '2px solid #5B7E3C', color: '#5B7E3C', padding: '0.6rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>Set as {u.role === 'Administrator' ? 'Guest' : 'Administrator'}</button>
                             )}
                           </div>
                         </td>
@@ -433,26 +526,63 @@ const LoginModal = ({ isOpen, onClose, onLogin }) => {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   useEffect(() => { if (isOpen) { setIsRegister(false); setError(''); setSuccess(''); setEmail(''); setPassword(''); } }, [isOpen])
-  const handleSubmit = (e) => {
+
+  const handleGoogleSignIn = async () => {
+    setError('')
+    setSuccess('')
+    try {
+      if (!auth) throw new Error("Firebase is not configured. Add credentials to src/firebase.js");
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const email = result.user.email;
+
+      const existingUsers = JSON.parse(localStorage.getItem('user_accounts') || '[]')
+      let userData = existingUsers.find(u => u.email === email)
+      if (!userData) {
+        const isAdmin = email === 'prodkasafar@gmail.com'
+        userData = { name: email.split('@')[0], email, role: isAdmin ? 'Administrator' : 'Guest' }
+        localStorage.setItem('user_accounts', JSON.stringify([...existingUsers, userData]))
+      }
+      onLogin(userData)
+      onClose()
+    } catch (err) {
+      setError(err.message || 'System error with Google Sign-In.')
+    }
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setSuccess('')
     try {
-      const stored = localStorage.getItem('user_accounts')
-      const existingUsers = stored ? JSON.parse(stored) : []
       if (isRegister) {
-        if (existingUsers.some(u => u.email === email)) { setError('Account already exists. Please sign in.'); return; }
-        const newUser = { name: email.split('@')[0], email, password, role: 'Guest' }
-        localStorage.setItem('user_accounts', JSON.stringify([...existingUsers, newUser]))
-        setSuccess('Account created successfully! Please sign in with your credentials.')
+        if (!auth) throw new Error("Firebase is not configured. Add credentials to src/firebase.js");
+        await createUserWithEmailAndPassword(auth, email, password)
+        const isAdmin = email === 'prodkasafar@gmail.com'
+        const newUser = { name: email.split('@')[0], email, role: isAdmin ? 'Administrator' : 'Guest' }
+        const existingUsers = JSON.parse(localStorage.getItem('user_accounts') || '[]')
+        if (!existingUsers.find(u => u.email === email)) {
+          localStorage.setItem('user_accounts', JSON.stringify([...existingUsers, newUser]))
+        }
+        setSuccess('Account created successfully! Please sign in.')
         setIsRegister(false)
         setEmail('')
         setPassword('')
       } else {
-        const user = existingUsers.find(u => u.email === email && u.password === password)
-        if (user) { onLogin(user); onClose(); } else { setError('Invalid credentials. Please check your email/password.'); }
+        if (!auth) throw new Error("Firebase is not configured. Add credentials to src/firebase.js");
+        await signInWithEmailAndPassword(auth, email, password)
+        const existingUsers = JSON.parse(localStorage.getItem('user_accounts') || '[]')
+        let userData = existingUsers.find(u => u.email === email)
+        if (!userData) {
+          userData = { name: email.split('@')[0], email, role: 'Guest' }
+          localStorage.setItem('user_accounts', JSON.stringify([...existingUsers, userData]))
+        }
+        onLogin(userData)
+        onClose()
       }
-    } catch (err) { setError('System error. Please try again.'); }
+    } catch (err) {
+      setError(err.message || 'System error. Please try again.')
+    }
   }
   return (
     <AnimatePresence>
@@ -472,7 +602,19 @@ const LoginModal = ({ isOpen, onClose, onLogin }) => {
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ padding: '1.2rem', borderRadius: '16px', border: '2px solid #e2e8f0' }} required placeholder="Password" />
               <button type="submit" className="btn-signin" style={{ height: '60px', justifyContent: 'center' }}>{isRegister ? 'Sign Up' : 'Sign In'}</button>
             </form>
-            <button onClick={() => { setIsRegister(!isRegister); setError(''); }} style={{ width: '100%', marginTop: '2rem', background: 'none', color: '#5B7E3C', fontWeight: 700, textDecoration: 'underline' }}>{isRegister ? 'Already have an account? Sign In' : 'Need an account? Create one'}</button>
+
+            <div style={{ display: 'flex', alignItems: 'center', margin: '1.5rem 0' }}>
+              <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }}></div>
+              <span style={{ padding: '0 1rem', color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>OR</span>
+              <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }}></div>
+            </div>
+
+            <button onClick={handleGoogleSignIn} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.8rem', padding: '1rem', background: 'white', border: '2px solid #e2e8f0', borderRadius: '16px', fontSize: '1rem', fontWeight: 700, color: '#1e293b', cursor: 'pointer', transition: 'all 0.2s' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>
+              Continue with Google
+            </button>
+
+            <button onClick={() => { setIsRegister(!isRegister); setError(''); }} style={{ width: '100%', marginTop: '1.5rem', background: 'none', color: '#5B7E3C', fontWeight: 700, textDecoration: 'underline', border: 'none', cursor: 'pointer' }}>{isRegister ? 'Already have an account? Sign In' : 'Need an account? Create one'}</button>
           </motion.div>
         </div>
       )}
@@ -483,25 +625,148 @@ const LoginModal = ({ isOpen, onClose, onLogin }) => {
 const BookingModal = ({ isOpen, onClose, onBookingComplete, user, onOpenLogin }) => {
   const [step, setStep] = useState(1)
   const [propertyTypes, setPropertyTypes] = useState([])
-  const [bookingData, setBookingData] = useState({ checkIn: '', checkOut: '', guests: 1, property: '', guestName: '', age: '', gender: '', mobile: '', status: 'Confirmed' })
+  const [bookingData, setBookingData] = useState({ checkIn: '', checkOut: '', guests: 1, property: '', guestName: '', dob: '', gender: '', countryCode: '+91', mobile: '', status: 'Confirmed' })
+  const [formErrors, setFormErrors] = useState({})
+  const [availabilityStatus, setAvailabilityStatus] = useState('idle')
+  const [generatedBookingId, setGeneratedBookingId] = useState('')
+  const [countryCodes, setCountryCodes] = useState(['+1', '+44', '+61', '+81', '+91'])
   const fStyle = { padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)', fontSize: '0.95rem', width: '100%', boxSizing: 'border-box' }
+  const fStyleError = { ...fStyle, border: '2px solid #EA5252' }
+
+  useEffect(() => {
+    fetch('https://restcountries.com/v3.1/all?fields=idd')
+      .then(res => res.json())
+      .then(data => {
+        const codes = data.filter(c => c.idd && c.idd.root).map(c => (c.idd.suffixes || ['']).map(s => c.idd.root + s)).flat()
+        const unique = [...new Set(codes)].sort((a, b) => parseInt(a.replace('+', '')) - parseInt(b.replace('+', '')))
+        if (unique.length > 0) setCountryCodes(unique)
+      })
+      .catch(() => { })
+
+    fetch('https://ipapi.co/json/')
+      .then(res => res.json())
+      .then(data => {
+        if (data.country_calling_code) {
+          setBookingData(prev => ({ ...prev, countryCode: data.country_calling_code }))
+        }
+      })
+      .catch(() => { })
+  }, [])
 
   useEffect(() => {
     if (isOpen) {
       const types = getPropertyTypes()
       setPropertyTypes(types)
       setStep(1)
-      setBookingData({ checkIn: '', checkOut: '', guests: 1, property: types[0] || '', guestName: '', age: '', gender: '', mobile: '', status: 'Confirmed' })
+      setFormErrors({})
+      setAvailabilityStatus('idle')
+      setBookingData(prev => ({ checkIn: '', checkOut: '', guests: 1, property: types[0] || '', guestName: '', dob: '', gender: '', countryCode: prev.countryCode || '+91', mobile: '', status: 'Confirmed' }))
     }
   }, [isOpen])
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const newBooking = { ...bookingData, id: Math.random().toString(36).substr(2, 9), date: new Date().toLocaleDateString(), userEmail: user?.email || '' }
+  useEffect(() => {
+    setAvailabilityStatus('idle')
+  }, [bookingData.checkIn, bookingData.checkOut, bookingData.property])
+
+  const validate = () => {
+    const errors = {}
+    // DOB validation: must be at least 18
+    if (bookingData.dob) {
+      const dobDate = new Date(bookingData.dob);
+      const today = new Date();
+      let age = today.getFullYear() - dobDate.getFullYear();
+      const m = today.getMonth() - dobDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dobDate.getDate())) {
+        age--;
+      }
+      if (age < 18) {
+        errors.dob = 'Guest must be at least 18 years old to make a booking.'
+      }
+    }
+    // Date validation: checkout must be after checkin, and checkin cannot be in the past
+    if (bookingData.checkIn) {
+      const checkInDate = new Date(bookingData.checkIn + 'T00:00:00');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (checkInDate < today) {
+        errors.dates = 'Check-in date cannot be in the past.'
+      }
+    }
+    if (bookingData.checkIn && bookingData.checkOut) {
+      if (new Date(bookingData.checkOut) <= new Date(bookingData.checkIn)) {
+        errors.dates = 'Check-out date must be after the check-in date.'
+      }
+    }
+    return errors
+  }
+
+  const handleCheckAvailability = () => {
+    const errors = validate()
+    if (!bookingData.checkIn || !bookingData.checkOut) {
+      setFormErrors({ ...errors, dates: 'Please select both check-in and check-out dates.' })
+      return
+    }
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors)
+      return
+    }
+    setFormErrors({})
+
     const existing = JSON.parse(localStorage.getItem('bookings') || '[]')
+    const start = new Date(bookingData.checkIn)
+    const end = new Date(bookingData.checkOut)
+
+    const isConflict = existing.some(b => {
+      if (b.property !== bookingData.property) return false
+      const bStart = new Date(b.checkIn)
+      const bEnd = new Date(b.checkOut)
+      return start < bEnd && end > bStart
+    })
+
+    if (isConflict) {
+      setAvailabilityStatus('unavailable')
+    } else {
+      setAvailabilityStatus('available')
+      if (window.confirm("Room is available! Would you like to confirm your booking?")) {
+        processBooking()
+      }
+    }
+  }
+
+  const processBooking = () => {
+    const existing = JSON.parse(localStorage.getItem('bookings') || '[]')
+    const existingIds = existing.map(b => b.id).filter(id => id && id.startsWith('#AMB-'))
+    const maxId = existingIds.reduce((max, id) => {
+      const num = parseInt(id.replace('#AMB-', ''), 10)
+      return num > max ? num : max
+    }, 0)
+    const newIdString = `#AMB-${String(maxId + 1).padStart(6, '0')}`
+
+    setGeneratedBookingId(newIdString)
+    const newBooking = { ...bookingData, id: newIdString, date: new Date().toLocaleDateString(), userEmail: user?.email || '' }
     localStorage.setItem('bookings', JSON.stringify([...existing, newBooking]))
     if (onBookingComplete) onBookingComplete()
     setStep(2)
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (availabilityStatus === 'idle') {
+      handleCheckAvailability()
+      return
+    }
+    if (availabilityStatus === 'unavailable') {
+      return
+    }
+
+    const errors = validate()
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors)
+      return
+    }
+    setFormErrors({})
+
+    processBooking()
   }
 
   const handleCreateAccount = () => { onClose(); if (onOpenLogin) onOpenLogin() }
@@ -516,35 +781,97 @@ const BookingModal = ({ isOpen, onClose, onBookingComplete, user, onOpenLogin })
             {step === 1 ? (
               <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1.2rem' }}>
                 <h2 style={{ fontSize: '2rem', fontWeight: 800 }}>Reserve Your Stay</h2>
-                <input type="text" value={bookingData.guestName} onChange={e => setBookingData({ ...bookingData, guestName: e.target.value })} placeholder="Full Name *" required style={fStyle} />
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Full Name *</label>
+                  <input type="text" value={bookingData.guestName} onChange={e => setBookingData({ ...bookingData, guestName: e.target.value })} required style={fStyle} />
+                </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <input type="number" min="1" max="120" value={bookingData.age} onChange={e => setBookingData({ ...bookingData, age: e.target.value })} placeholder="Age *" required style={fStyle} />
-                  <select value={bookingData.gender} onChange={e => setBookingData({ ...bookingData, gender: e.target.value })} required style={fStyle}>
-                    <option value="">Gender *</option>
-                    <option>Male</option>
-                    <option>Female</option>
-                    <option>Other</option>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Date of Birth *</label>
+                    <input type="date" value={bookingData.dob} onChange={e => { setBookingData({ ...bookingData, dob: e.target.value }); setFormErrors(prev => ({ ...prev, dob: undefined })) }} required style={formErrors.dob ? fStyleError : fStyle} />
+                    {formErrors.dob && <p style={{ color: '#EA5252', fontSize: '0.78rem', marginTop: '0.4rem', fontWeight: 600, lineHeight: 1.4 }}>⚠ {formErrors.dob}</p>}
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Gender *</label>
+                    <select value={bookingData.gender} onChange={e => setBookingData({ ...bookingData, gender: e.target.value })} required style={fStyle}>
+                      <option value="" disabled>Select</option>
+                      <option>Male</option>
+                      <option>Female</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1.2fr', gap: '1rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>No. of Guests *</label>
+                    <input type="number" min="1" value={bookingData.guests} onChange={e => setBookingData({ ...bookingData, guests: e.target.value })} required style={fStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Mobile Number *</label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <select value={bookingData.countryCode} onChange={e => setBookingData({ ...bookingData, countryCode: e.target.value })} style={{ ...fStyle, width: '85px', padding: '0 0.4rem', fontSize: '0.9rem' }}>
+                        {countryCodes.map(code => <option key={code} value={code}>{code}</option>)}
+                      </select>
+                      <input type="tel" value={bookingData.mobile} onChange={e => setBookingData({ ...bookingData, mobile: e.target.value.replace(/\D/g, '') })} required style={{ ...fStyle, flex: 1 }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Property *</label>
+                  <select value={bookingData.property} onChange={e => setBookingData({ ...bookingData, property: e.target.value })} required style={fStyle}>
+                    {propertyTypes.map((pt, i) => <option key={i} value={pt}>{pt}</option>)}
                   </select>
                 </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <input type="number" min="1" value={bookingData.guests} onChange={e => setBookingData({ ...bookingData, guests: e.target.value })} placeholder="No. of Guests *" required style={fStyle} />
-                  <input type="tel" value={bookingData.mobile} onChange={e => setBookingData({ ...bookingData, mobile: e.target.value })} placeholder="Mobile *" required style={fStyle} />
+                  <div><label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Check-in *</label><input type="date" value={bookingData.checkIn} onChange={e => { setBookingData({ ...bookingData, checkIn: e.target.value }); setFormErrors(prev => ({ ...prev, dates: undefined })) }} required style={formErrors.dates ? fStyleError : fStyle} /></div>
+                  <div><label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Check-out *</label><input type="date" value={bookingData.checkOut} onChange={e => { setBookingData({ ...bookingData, checkOut: e.target.value }); setFormErrors(prev => ({ ...prev, dates: undefined })) }} required style={formErrors.dates ? fStyleError : fStyle} /></div>
                 </div>
-                <select value={bookingData.property} onChange={e => setBookingData({ ...bookingData, property: e.target.value })} required style={fStyle}>
-                  {propertyTypes.map((pt, i) => <option key={i} value={pt}>{pt}</option>)}
-                </select>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <div><label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Check-in</label><input type="date" value={bookingData.checkIn} onChange={e => setBookingData({ ...bookingData, checkIn: e.target.value })} required style={fStyle} /></div>
-                  <div><label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Check-out</label><input type="date" value={bookingData.checkOut} onChange={e => setBookingData({ ...bookingData, checkOut: e.target.value })} required style={fStyle} /></div>
-                </div>
-                <button type="submit" className="btn-booking" style={{ height: '56px', fontSize: '1.05rem' }}>Confirm Booking</button>
+                {formErrors.dates && (
+                  <div style={{ background: '#fff1f2', border: '2px solid #fda4af', borderRadius: '12px', padding: '0.8rem 1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '1.1rem' }}>📅</span>
+                    <p style={{ color: '#e11d48', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>{formErrors.dates}</p>
+                  </div>
+                )}
+                {availabilityStatus === 'unavailable' && (
+                  <div style={{ background: '#fff1f2', border: '2px solid #fda4af', borderRadius: '12px', padding: '0.8rem 1rem', display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
+                    <span style={{ fontSize: '1.1rem' }}>⚠</span>
+                    <p style={{ color: '#e11d48', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>Sorry, the selected property is not available for these dates.</p>
+                  </div>
+                )}
+                {availabilityStatus === 'available' && (
+                  <div style={{ background: '#f0fdf4', border: '2px solid #bbf7d0', borderRadius: '12px', padding: '0.8rem 1rem', display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
+                    <span style={{ fontSize: '1.1rem' }}>✨</span>
+                    <p style={{ color: '#16a34a', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>Room is available! Would you like to confirm your booking?</p>
+                  </div>
+                )}
+                {availabilityStatus === 'available' ? (
+                  <button type="submit" className="btn-booking" style={{ height: '56px', fontSize: '1.05rem', width: '100%' }}>Confirm Booking</button>
+                ) : (
+                  <button type="button" onClick={handleCheckAvailability} className="btn-primary" style={{ height: '56px', fontSize: '1.05rem', width: '100%', borderRadius: '14px' }}>Check Availability</button>
+                )}
               </form>
             ) : (
               <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
                 <CheckCircle2 size={70} color="#5B7E3C" style={{ marginBottom: '1rem' }} />
                 <h2 style={{ fontSize: '2rem', fontWeight: 800 }}>Booking Confirmed!</h2>
-                <p style={{ color: '#64748b', margin: '0.8rem 0' }}>Your stay at <strong style={{ color: '#5B7E3C' }}>{bookingData.property}</strong></p>
-                <p style={{ color: '#64748b', fontSize: '0.95rem' }}>{formatDate(bookingData.checkIn)} to {formatDate(bookingData.checkOut)}</p>
+
+                <div style={{ margin: '1.5rem 0', padding: '1.5rem', background: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: '16px' }}>
+                  <p style={{ color: '#64748b', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700, margin: '0 0 0.5rem 0' }}>Your Booking ID</p>
+                  <p style={{ fontSize: '2.2rem', color: '#0f172a', fontWeight: 800, margin: 0, letterSpacing: '2px' }}>{generatedBookingId}</p>
+                </div>
+
+                <p style={{ color: '#64748b', margin: '0.8rem 0', lineHeight: 1.6, fontSize: '1.05rem' }}>We are absolutely thrilled to host you! Please keep your Booking ID handy when you arrive for a smooth and seamless check-in experience.</p>
+
+                <div style={{ background: 'var(--background)', padding: '1.5rem', borderRadius: '16px', marginTop: '1.5rem' }}>
+                  <p style={{ color: '#64748b', margin: '0 0 0.5rem 0' }}>Your stay at <strong style={{ color: '#5B7E3C', fontSize: '1.1rem' }}>{bookingData.property}</strong></p>
+                  <p style={{ color: '#1e293b', fontSize: '1rem', fontWeight: 600, margin: 0 }}>{formatDate(bookingData.checkIn)} to {formatDate(bookingData.checkOut)}</p>
+                </div>
+
                 {!user && (
                   <div style={{ background: 'linear-gradient(135deg, #f0f9eb, #fff7ed)', border: '2px solid #bbf7d0', borderRadius: '20px', padding: '1.8rem', marginTop: '1.5rem', textAlign: 'center' }}>
                     <p style={{ fontSize: '1.5rem', margin: '0 0 0.5rem' }}>🌿</p>
@@ -593,36 +920,60 @@ const MyBookingsModal = ({ isOpen, onClose, user }) => {
 
 function App() {
   const [view, setView] = useState('home'); const [user, setUser] = useState(null); const [isBookingOpen, setIsBookingOpen] = useState(false); const [isLoginOpen, setIsLoginOpen] = useState(false); const [isMyBookingsOpen, setIsMyBookingsOpen] = useState(false); const [refreshKey, setRefreshKey] = useState(0)
+
   useEffect(() => {
-    const savedUser = localStorage.getItem('user')
-    let currentUser = savedUser ? JSON.parse(savedUser) : null
+    // One time wipe of old users to enforce prodkasafar@gmail.com as the only super user
+    if (!localStorage.getItem('wiped_old_users')) {
+      let currentUsers = JSON.parse(localStorage.getItem('user_accounts') || '[]')
+      currentUsers = currentUsers.filter(u => u.email === 'prodkasafar@gmail.com')
+      localStorage.setItem('user_accounts', JSON.stringify(currentUsers))
+      localStorage.setItem('wiped_old_users', 'true')
+    }
 
     const existingUsers = JSON.parse(localStorage.getItem('user_accounts') || '[]')
-
-    // Seed admin user if missing
-    if (!existingUsers.some(u => u.email === 'admin@email.com')) {
-      const adminUser = { name: 'Admin', email: 'admin@email.com', password: 'admin', role: 'Administrator' }
-      existingUsers.push(adminUser)
-      localStorage.setItem('user_accounts', JSON.stringify(existingUsers))
-    }
 
     // Seed property types if missing
     if (!localStorage.getItem('property_types')) {
       localStorage.setItem('property_types', JSON.stringify(['Forest Cabin', 'Amber Villa', 'Crimson Lodge']))
     }
 
-    // Crucial: Synchronize role from user_accounts to logged-in user session
-    if (currentUser) {
-      const account = existingUsers.find(u => u.email === currentUser.email)
-      if (account && account.role !== currentUser.role) {
-        currentUser = { ...currentUser, role: account.role }
-        localStorage.setItem('user', JSON.stringify(currentUser))
-      }
-      setUser(currentUser)
+    if (auth) {
+      const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+        if (firebaseUser) {
+          const users = JSON.parse(localStorage.getItem('user_accounts') || '[]')
+          let currentUser = users.find(u => u.email === firebaseUser.email)
+          const isAdmin = firebaseUser.email === 'prodkasafar@gmail.com'
+          if (!currentUser) {
+            currentUser = { name: firebaseUser.email.split('@')[0], email: firebaseUser.email, role: isAdmin ? 'Administrator' : 'Guest' }
+            users.push(currentUser)
+            localStorage.setItem('user_accounts', JSON.stringify(users))
+          } else if (isAdmin && currentUser.role !== 'Administrator') {
+            currentUser.role = 'Administrator'
+            localStorage.setItem('user_accounts', JSON.stringify(users))
+          }
+          setUser(currentUser)
+          localStorage.setItem('user', JSON.stringify(currentUser))
+        } else {
+          setUser(null)
+          localStorage.removeItem('user')
+        }
+      })
+      return () => unsubscribe()
     }
   }, [])
   const handleLogin = (userData) => { setUser(userData); localStorage.setItem('user', JSON.stringify(userData)); }
-  const handleLogout = () => { setUser(null); localStorage.removeItem('user'); setView('home'); }
+  const handleLogout = async () => {
+    if (auth) {
+      try {
+        await signOut(auth);
+      } catch (error) {
+        console.error("Error signing out: ", error);
+      }
+    }
+    setUser(null);
+    localStorage.removeItem('user');
+    setView('home');
+  }
   if (view === 'admin') return <AdminDashboard onBack={() => setView('home')} currentUser={user} />
   return (
     <div className="app">

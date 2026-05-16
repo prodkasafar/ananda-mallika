@@ -1,0 +1,15 @@
+1. Add a validation for dates when taking in a booking. The check-out date should be greater than the check-in date. Prompt it to the user with an appropriate message. >> done
+2. Add a validation on age limit. The guest should be atleast 18 years old. Prompt it to the user with an appropriate message. >> done
+3. Drop the current signup-login system and implement a firebase authentication system. >> done
+4. Generate a unique booking ID for every successful booking and display it to the user. Add a warm and hearty message asking the user to keep the booking ID handy when coming for the stay It should reflect in the admin panel as well. The booking id should be of the format: #AMB-000001, #AMB-000002, #AMB-000003, etc.  >> done
+5. Maintain the data of the website in a postgresql database. 
+6. Remove the option to delete a user from Admin panel > User Roles. >> done
+7. In the booking modal, replace the "Confirm booking" button with "Check Availability". If the room is available, ask the user to confirm the booking. If not, show a message indicating that the room is not available. >> done
+8. Add a country code option for the mobile number field in the booking modal. It should be a dropdown of all the country codes. Default it to the country code of the user's location. Allow only numeric characters in the mobile number field. >> done
+9.  Split the Stay Period field in Admin tools > Reservations management into Check-in and Check-out dates >> done
+10. Remove email,age,gender,mobile and Add Booking ID as a column in bookings in Admin tools > Reservations management. The order of the columns should be: Booking ID, Name, Property, Check-in, Check-out, Status >> done
+11. Expand each record in Admin tools > Reservations management to show all the details of the booking. >> done
+12. Add filters in the Admin panel > Reservation management section to allow filtering by all the fields individually. When a filter is applied, the bookings should be updated in real time. >> done
+13. Add a search bar in the Admin panel > Reservation management section to allow searching by booking ID. The search should be updated in real time. >> Not needed
+14. Change the age field in the booking modal to Date of birth and validate that the guest is atleast 18 years old. >> done
+15. Don't take backdated bookings. Prompt the user with an appropriate message. >> done
